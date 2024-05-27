@@ -50,12 +50,12 @@ fetch_users() {
 		key="$1"
 		case $key in
 		--user)
-			user_override="$2"
+			user_override="user:$2"
 			shift # past argument
 			shift # past value
 			;;
 		--sa)
-			sa_override="$2"
+			sa_override="serviceAccount:$2"
 			shift # past argument
 			shift # past value
 			;;
