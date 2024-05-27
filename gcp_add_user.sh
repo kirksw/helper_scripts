@@ -73,33 +73,21 @@ fetch_users() {
 	# Loop through each project name
 	for project in $GCP_PROJECT_NAME; do
 		# Fetch service accounts for the current project
-		if [ -z "$sa_override" ]; then
-			service_accounts=$(gcloud iam service-accounts list --project="$project" --format="value(email)")
-			all_service_accounts+="$service_accounts"$'\n'
-		fi
+		service_accounts=$(gcloud iam service-accounts list --project="$project" --format="value(email)")
+		service_accounts=$(echo "$service_accounts" | sed 's/^/serviceAccount:/')
+		all_service_accounts+="$service_accounts"$'\n'
 
 		# Fetch users for the current project
-		if [ -z "$user_override" ]; then
-			users=$(gcloud projects get-iam-policy "$project" --flatten="bindings[].members" --format="value(bindings.members)")
-			all_users+="$users"$'\n'
-		fi
+		users=$(gcloud projects get-iam-policy "$project" --flatten="bindings[].members" --format="value(bindings.members)")
+		users=$(echo "$users" | grep '^user:')
+		all_users+="$users"$'\n'
 	done
 
 	# Combine service accounts and users, removing any duplicate entries
-	if [ -n "$sa_override" ]; then
-		combined_list="$sa_override"
-	else
-		combined_list=$(echo -e "$all_service_accounts" | sort | uniq)
-	fi
-
-	if [ -n "$user_override" ]; then
-		combined_list+=$'\n'"$user_override"
-	else
-		combined_list+=$'\n'$(echo -e "$all_users" | sort | uniq)
-	fi
+	combined_list=$(echo -e "$all_service_accounts\n$all_users" | sort | uniq)
 
 	# Write the combined list to the cache file
-	echo "$combined_list" >"$USER_CACHE_FILE"
+	echo "$combined_list" | sort | uniq >"$USER_CACHE_FILE"
 }
 
 # Parse arguments
@@ -115,11 +103,11 @@ while [[ "$#" -gt 0 ]]; do
 		shift
 		;;
 	--user)
-		user_override="$2"
+		user_override="user:$2"
 		shift 2
 		;;
 	--sa)
-		sa_override="$2"
+		sa_override="serviceAccount:$2"
 		shift 2
 		;;
 	--project)
@@ -156,7 +144,7 @@ fi
 
 if [ "$FORCE_REFRESH" = true ] || [ ! -f "$USER_CACHE_FILE" ] || [ $((current_time - $(stat -f %m "$USER_CACHE_FILE"))) -gt $CACHE_DURATION ]; then
 	echo "Fetching users and service accounts..."
-	fetch_users --user "$user_override" --sa "$sa_override" "$selected_project"
+	fetch_users "$selected_project"
 else
 	echo "Using cached users and service accounts..."
 fi
@@ -166,6 +154,17 @@ roles=$(cat "$ROLE_CACHE_FILE")
 
 # Read users and service accounts from cache
 users=$(cat "$USER_CACHE_FILE")
+
+# Add overrides directly to the list (not cached)
+if [ -n "$sa_override" ]; then
+	echo "appending $sa_override"
+	users+=$'\n'"$sa_override"
+fi
+
+if [ -n "$user_override" ]; then
+	echo "appending user $user_override"
+	users+=$'\n'"$user_override"
+fi
 
 # Use fzf to select a role
 selected_role=$(echo "$roles" | fzf --prompt="Select IAM Role: ")
